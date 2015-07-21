@@ -31,19 +31,25 @@ Model ReadModel(const char* filename)
         model.global_min = fminf(model.points[i], model.global_min);
         model.global_max = fmaxf(model.points[i], model.global_max);
     }
-    int n;
+    int n, a, b, c;
     for (uint i = 0; i < model.triangle_number; ++i)
     {
         fscanf(input,
             "%d %d %d %d",
             &n,
-            &(model.triangles[i].indexA),
-            &(model.triangles[i].indexB),
-            &(model.triangles[i].indexC));
+            &a,
+            &b,
+            &c);
         if (n != 3)
         {
             printf("Polygons except triangles are not supported.\n");
             exit(1);
+        }
+        else
+        {
+            model.triangles[i].v1 = model.points[a];
+            model.triangles[i].v2 = model.points[b];
+            model.triangles[i].v3 = model.points[c];
         }
     }
     clock_t end = clock();

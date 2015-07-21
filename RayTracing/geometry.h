@@ -4,9 +4,9 @@
 
 struct Triangle
 {
-    int indexA;
-    int indexB;
-    int indexC;
+    float3 v1;
+    float3 v2;
+    float3 v3;
 };
 
 #endif

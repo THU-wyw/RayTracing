@@ -1,4 +1,5 @@
 ﻿<Model DefinitionId="3a3ca3f4-7ba7-4c09-a182-6ba59bf12599" DisplayName="Analysis Activity" xmlns="clr-namespace:Ark.PropertyModel;assembly=Ark">
+    <Property Name="ActivityType" Value="Profile" />
     <Property Name="Application" Value="D:\Projects\TestProjects\RayTracing\Release\RayTracing.exe" />
     <Property Name="EnableCudaApiContextAttachDetach" Value="True" />
     <Property Name="EnableCudaApiContextManagement" Value="True" />
@@ -114,7 +115,6 @@
     <Property Name="EnableOpenGlWorkloadPushBuffers" Value="True" />
     <Property Name="EnableSystemCpuThreadTrace" Value="True" />
     <Property Name="EnableSystemModuleTrace" Value="True" />
-    <Property Name="EnableSystemTrace" Value="True" />
     <Property Name="EnableToolsExtMarkerTrace" Value="True" />
     <Property Name="EnableToolsExtPushPopRangeTrace" Value="True" />
     <Property Name="EnableToolsExtResourceNaming" Value="True" />

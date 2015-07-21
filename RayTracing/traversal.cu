@@ -26,12 +26,12 @@ __device__ __inline__ void swap(T* a, T* b)
     *b = t;
 }
 
-__device__ __inline__ float intersect(const float3 orig, const float3& dir, const Model& model, int triangle_id)
+__device__ __inline__ float intersect(const float3& orig, const float3& dir, const Model& model, int triangle_id)
 {
-    float3 edge1 = model.points[model.triangles[triangle_id].indexB]
-        - model.points[model.triangles[triangle_id].indexA];
-    float3 edge2 = model.points[model.triangles[triangle_id].indexC]
-        - model.points[model.triangles[triangle_id].indexA];
+    float3 edge1 = model.triangles[triangle_id].v2
+        - model.triangles[triangle_id].v1;
+    float3 edge2 = model.triangles[triangle_id].v3
+        - model.triangles[triangle_id].v1;
 
     float3 pvec = cross(dir, edge2);
     float det = dot(edge1, pvec);
@@ -39,7 +39,7 @@ __device__ __inline__ float intersect(const float3 orig, const float3& dir, cons
         return -1;
 
     float inv_det = 1.0 / det;
-    float3 tvec = orig - model.points[model.triangles[triangle_id].indexA];
+    float3 tvec = orig - model.triangles[triangle_id].v1;
 
     float3 qvec = cross(tvec, edge1);
     float u = dot(tvec, pvec) * inv_det;
@@ -122,8 +122,8 @@ __device__ thrust::pair<int, float> traversal(const Bvh& bvh, const Model& model
             float c0max = min3f(fmaxf(c0low, c0high));
             float c1min = max3f(fminf(c1low, c1high));
             float c1max = min3f(fmaxf(c1low, c1high));
-            bool traverseChild0 = (c0max >= c0min);   
-            bool traverseChild1 = (c1max >= c1min); 
+            bool traverseChild0 = (c0max >= c0min) && (c0min <= t);   
+            bool traverseChild1 = (c1max >= c1min) && (c1min <= t); 
             currentNode = left_node;
             currentIsLeaf = left_is_leaf;
 
@@ -144,12 +144,10 @@ __device__ thrust::pair<int, float> traversal(const Bvh& bvh, const Model& model
                 {
                     if( c1min < c0min )   // go right    
                     {	
-                        swap(&left_node, &right_node);
-                        swap(&left_is_leaf, &right_is_leaf);				
+                        swap(&currentNode, &right_node);
+                        swap(&currentIsLeaf, &right_is_leaf);				
                     }
                     ++stackPtr;
-                    currentNode = left_node;
-                    currentIsLeaf = left_is_leaf;
                     bvhStack[stackPtr].nodeIdx = right_node;
                     bvhStack[stackPtr].isleaf = right_is_leaf;
                 }
@@ -204,10 +202,10 @@ __global__ void GetColorOnePixel(const ScreenParams params,
             float3 light = make_float3(Lightx, Lighty, Lightz);
             float3 L = normalize(light - pintersect); //p表示交点，l表示光源，向量L是p->l
             V = -dir;
-            float3 AB = model.points[model.triangles[k].indexB]
-            - model.points[model.triangles[k].indexA];
-            float3 AC = model.points[model.triangles[k].indexC]
-            - model.points[model.triangles[k].indexA];
+            float3 AB = model.triangles[k].v2
+            - model.triangles[k].v1;
+            float3 AC = model.triangles[k].v3
+            - model.triangles[k].v1;
             float3 N = normalize(cross(AB, AC)); //三角形ABC,向量AB->  向量AC->  叉乘 右手准则，向量N垂直于三角形ABC			
             if (dot(N, dir) >= 0)
             {

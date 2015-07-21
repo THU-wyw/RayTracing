@@ -14,8 +14,6 @@ struct Bvh
     struct InnerNode
     {
         int father_index;
-        int low_index;
-        int high_index;
         bool left_is_leaf;
         bool right_is_leaf;
         int left_index;

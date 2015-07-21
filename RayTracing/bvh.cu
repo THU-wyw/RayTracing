@@ -24,13 +24,13 @@ public:
     __host__ __device__ uint operator()(int i)
     {
         float3 center = 0.5 * (fminf(
-            fminf(model_.points[model_.triangles[i].indexA],
-            model_.points[model_.triangles[i].indexB]),
-            model_.points[model_.triangles[i].indexC])
+            fminf(model_.triangles[i].v1,
+            model_.triangles[i].v2),
+            model_.triangles[i].v3)
             + fmaxf(
-            fmaxf(model_.points[model_.triangles[i].indexA],
-            model_.points[model_.triangles[i].indexB]),
-            model_.points[model_.triangles[i].indexC]));
+            fmaxf(model_.triangles[i].v1,
+            model_.triangles[i].v2),
+            model_.triangles[i].v3));
         float3 p = (center - model_.global_min) / (model_.global_max - model_.global_min);
         p = clamp(p * 1024.0f, 0.0f, 1023.0f);
         uint xx = ExpandBits((uint)p.x);
@@ -130,16 +130,6 @@ __global__ void CreateInnerNodes(int leaf_number,
         k = k / 2;
     }
     int j = idx + l*d;
-    if (d == 1)
-    {
-        inner_nodes[idx].low_index = idx;
-        inner_nodes[idx].high_index = j;
-    } 
-    else
-    {
-        inner_nodes[idx].low_index = j;
-        inner_nodes[idx].high_index = idx;
-    }
     // Find the split position using binary search
     uint tnode = delta(idx, j);
     uint mid, start, end;
@@ -237,14 +227,14 @@ public:
         {
             bvh_.leaf_nodes[index].max_bound = fmaxf(
                 fmaxf(bvh_.leaf_nodes[index].max_bound,
-                    model_.points[model_.triangles[bvh_.original_index[i]].indexA]),
-                fmaxf(model_.points[model_.triangles[bvh_.original_index[i]].indexB],
-                model_.points[model_.triangles[bvh_.original_index[i]].indexC]));
+                    model_.triangles[bvh_.original_index[i]].v1),
+                fmaxf(model_.triangles[bvh_.original_index[i]].v2,
+                    model_.triangles[bvh_.original_index[i]].v3));
             bvh_.leaf_nodes[index].min_bound = fminf(
                 fminf(bvh_.leaf_nodes[index].min_bound,
-                model_.points[model_.triangles[bvh_.original_index[i]].indexA]),
-                fminf(model_.points[model_.triangles[bvh_.original_index[i]].indexB],
-                model_.points[model_.triangles[bvh_.original_index[i]].indexC]));
+                    model_.triangles[bvh_.original_index[i]].v1),
+                fminf(model_.triangles[bvh_.original_index[i]].v2,
+                    model_.triangles[bvh_.original_index[i]].v3));
         }
 
         int current = bvh_.leaf_nodes[index].father_index;
