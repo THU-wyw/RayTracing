@@ -35,6 +35,7 @@
 
 #define ScrToEye	10
 
+struct Ray;
 struct ScreenParams
 {
     int pixel_number;
@@ -48,5 +49,5 @@ struct ScreenParams
 };
 
 extern ScreenParams InitScreenParams();
-
+extern Ray* CreateRays(const ScreenParams& params);
 #endif

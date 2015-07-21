@@ -127,6 +127,7 @@ int main(int argc, char** argv)
         vhit[i] = false;
         vcolor[i] = 0;
     }
+    //CreateRays(params);
     GetColorAllPixels(params, device_model, bvh, vhit, vcolor);
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB|GLUT_DEPTH );

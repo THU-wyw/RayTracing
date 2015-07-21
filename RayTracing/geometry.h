@@ -9,4 +9,10 @@ struct Triangle
     float3 v3;
 };
 
+struct Ray
+{
+    float3 origin;
+    float3 direction;
+};
+
 #endif
