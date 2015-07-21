@@ -23,6 +23,7 @@
     <ClInclude Include="geometry.h" />
     <ClInclude Include="model.h" />
     <ClInclude Include="screen.h" />
+    <ClInclude Include="stack.h" />
     <ClInclude Include="traversal.h" />
     <ClInclude Include="vector_types_math.h" />
   </ItemGroup>
