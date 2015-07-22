@@ -13,12 +13,6 @@
 #define BlockDimX      256  
 #define StackSize      64
 
-struct NodeStack
-{
-    int nodeIdx;
-    bool isleaf;
-};
-
 template<typename T>
 __device__ __inline__ void swap(T* a, T* b)
 {
@@ -71,56 +65,117 @@ __device__ thrust::pair<int, float> traversal(const Bvh& bvh, const Model& model
     idir.y = 1.0f / (fabsf(dir.y) > EPSILON ? dir.y : ((dir.y>=0) ? EPSILON : -EPSILON));
     idir.z = 1.0f / (fabsf(dir.z) > EPSILON ? dir.z : ((dir.z>=0) ? EPSILON : -EPSILON));
 
-    Stack<Node> stack;
-    stack.Push(thrust::make_pair(0, false));
+    int stackPtr = -1;   
+    Node current = thrust::make_pair(0, false);
+    Node bvhStack[StackSize];	// Thrown into local memory by PTX, as slow as the global memory;
+
     int hit = -1;	
     float t = 1000.0;
 
-    while (!stack.Empty())
+    int leafstack[512];	
+    int num = 0;
+
+    while (stackPtr < StackSize)
     {
-        Node current_node = stack.Pop();
-        if (current_node.second)
-        {
-            float3 low, high;
-            low = bvh.leaf_nodes[current_node.first].min_bound;
-            high = bvh.leaf_nodes[current_node.first].max_bound;
-            low = (low - orig) * idir;
-            high = (high - orig) * idir;
-            float cmin = max3f(fminf(low, high));
-            float cmax = min3f(fmaxf(low, high));
-            if (cmax >= cmin && cmin <= t)
-            {
-                for (int i = bvh.leaf_nodes[current_node.first].low_index; i <= bvh.leaf_nodes[current_node.first].high_index; i++)
-                {
-                    float pt = intersect(orig, dir, model, bvh.original_index[i]);
-                    if (pt > 0 && pt < t)
-                    {
-                        t = pt;
-                        hit = bvh.original_index[i];
-                    }
-                }	
-            }
+        if (current.second)
+        {	
+            leafstack[num] = current.first;
+            num++;
+
+            // pop
+            if ( stackPtr == -1 ) 
+                break;
+            current = bvhStack[stackPtr];
+            --stackPtr;		
         }
         else
         {
-            float3 low, high;
-            low = bvh.inner_nodes[current_node.first].min_bound;
-            high = bvh.inner_nodes[current_node.first].max_bound;
-            low = (low - orig) * idir;
-            high = (high - orig) * idir;
-            float cmin = max3f(fminf(low, high));
-            float cmax = min3f(fmaxf(low, high));
-            if (cmax >= cmin && cmin <= t)
+            int left_node = bvh.inner_nodes[current.first].left_index;
+            int right_node = bvh.inner_nodes[current.first].right_index;
+            bool left_is_leaf = bvh.inner_nodes[current.first].left_is_leaf;
+            bool right_is_leaf = bvh.inner_nodes[current.first].right_is_leaf;
+            float3 c0low, c0high, c1low, c1high;
+            if (bvh.inner_nodes[current.first].left_is_leaf)
             {
-                stack.Push(thrust::make_pair(
-                    bvh.inner_nodes[current_node.first].left_index,
-                    bvh.inner_nodes[current_node.first].left_is_leaf));
-                stack.Push(thrust::make_pair(
-                    bvh.inner_nodes[current_node.first].right_index,
-                    bvh.inner_nodes[current_node.first].right_is_leaf));
+                c0low = bvh.leaf_nodes[left_node].min_bound;
+                c0high = bvh.leaf_nodes[left_node].max_bound;
             }
+            else
+            {
+                c0low = bvh.inner_nodes[left_node].min_bound;
+                c0high = bvh.inner_nodes[left_node].max_bound;
+            }
+            if (bvh.inner_nodes[current.first].right_is_leaf)
+            {
+                c1low = bvh.leaf_nodes[right_node].min_bound;
+                c1high = bvh.leaf_nodes[right_node].max_bound;
+            }
+            else
+            {
+                c1low = bvh.inner_nodes[right_node].min_bound;
+                c1high = bvh.inner_nodes[right_node].max_bound;
+            }
+            // Using texture memory and AOS here can accelerate the program by 2x;
+            float c0min = max3f(fminf(c0low, c0high));
+            float c0max = min3f(fmaxf(c0low, c0high));
+            float c1min = max3f(fminf(c1low, c1high));
+            float c1max = min3f(fmaxf(c1low, c1high));
+
+            bool traverseChild0 = (c0max >= c0min) && (c0min <= t);   
+            bool traverseChild1 = (c1max >= c1min) && (c1min <= t); 
+
             // Condition 1: intersect with only one child.
 
+            if( traverseChild0 != traverseChild1 )		
+            {
+                if (traverseChild0)
+                {
+                    current = thrust::make_pair(left_node, left_is_leaf);
+                }
+                else
+                {
+                    current = thrust::make_pair(right_node, right_is_leaf);
+                }
+            }
+            else
+            {
+                // Condition 2: both intersected, push the farther child into stack and deal with the closer one.
+                if ( traverseChild0 ) 
+                {
+                    if( c1min < c0min )   // go right    
+                    {	
+                        current = thrust::make_pair(right_node, right_is_leaf);
+                        ++stackPtr;
+                        bvhStack[stackPtr] = thrust::make_pair(left_node, left_is_leaf);
+                    }
+                    else
+                    {
+                        current = thrust::make_pair(left_node, left_is_leaf);
+                        ++stackPtr;
+                        bvhStack[stackPtr] = thrust::make_pair(right_node, right_is_leaf);
+                    }
+                }
+                // Condition 3: none intersected;s
+                else
+                {
+                    // pop;
+                    if ( stackPtr == -1 ) // This ray is not intersected with the whole scene.
+                        break;
+                    current = bvhStack[stackPtr];
+                    --stackPtr;
+                }
+            }			
+        }
+    }
+
+    for (int l = 0; l < num; l++)
+    {
+        int k = leafstack[l];
+        float pt = intersect(orig, dir, model, k);
+        if (pt > 0 && pt < t)
+        {
+            t = pt;
+            hit = k;
         }
     }
     return thrust::make_pair(hit, t);

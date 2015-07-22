@@ -25,8 +25,6 @@ struct Bvh
     struct LeafNode
     {
         int father_index;
-        int low_index;
-        int high_index;
         float3 min_bound;
         float3 max_bound;
     };

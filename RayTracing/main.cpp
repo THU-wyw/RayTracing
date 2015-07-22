@@ -5,6 +5,7 @@
 #include "bvh.h"
 #include "screen.h"
 #include "traversal.h"
+#include "test.h"
 #include <thrust/device_ptr.h>
 #include <cuda_runtime_api.h>
 
@@ -119,7 +120,7 @@ int main(int argc, char** argv)
     Model device_model = GetDeviceCopy(model);
     params = InitScreenParams();
     Bvh bvh = BuildDeviceBvh(device_model);
-    //Bvh bvh = CreateBvh(model);
+    //test_bvh(bvh);
     vhit = new bool[ScrHeight * ScrWidth];
     vcolor = new float[ScrWidth * ScrHeight];
     for (int i = 0; i < ScrHeight * ScrWidth; ++i) 

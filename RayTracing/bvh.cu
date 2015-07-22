@@ -63,21 +63,6 @@ public:
     __host__ __device__ Bvh::LeafNode operator()(int index)
     {
         Bvh::LeafNode node;
-        if (index > 0 && index < leaf_number_)
-        {
-            node.low_index = last_index_[index - 1] + 1;
-            node.high_index = last_index_[index];
-        }
-        else if (index == 0)
-        {
-            node.low_index = 0;
-            node.high_index = last_index_[0];
-        }
-        else
-        {
-            node.low_index = last_index_[index - 1] + 1;
-            node.high_index = triangle_number_ - 1;
-        }
         return node;
     }
 };
@@ -92,17 +77,17 @@ struct MortonIsSingleFunction
 
 __global__ void CreateInnerNodes(int leaf_number,
                                  const uint* morton_codes,
-                                 const int* last_id,
                                  Bvh::InnerNode* inner_nodes,
                                  Bvh::LeafNode* leaf_nodes)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= leaf_number - 1) return;
-    auto delta = [leaf_number, morton_codes, last_id](int i, int j) -> int
+    auto delta = [leaf_number, morton_codes](int i, int j) -> int
     {
         if (j < 0 || j >= leaf_number) return -1;
-        return __clz(morton_codes[last_id[i]]
-            ^ morton_codes[last_id[j]]);
+        int length = __clz(morton_codes[i] ^ morton_codes[j]);
+        if (length == sizeof(uint) * 8) length += __clz(i ^ j);
+        return length;
     };
     int x = delta(idx, idx - 1);
     int y = delta(idx, idx + 1);
@@ -219,24 +204,14 @@ public:
     __device__ void operator() (int index)
     {
         //从叶子节点开始
-        bvh_.leaf_nodes[index].max_bound = make_float3(-1000, -1000, -1000);
-        bvh_.leaf_nodes[index].min_bound = make_float3(1000, 1000, 1000);
-        for (int i = bvh_.leaf_nodes[index].low_index;
-            i <= bvh_.leaf_nodes[index].high_index;
-            ++i)
-        {
-            bvh_.leaf_nodes[index].max_bound = fmaxf(
-                fmaxf(bvh_.leaf_nodes[index].max_bound,
-                    model_.triangles[bvh_.original_index[i]].v1),
-                fmaxf(model_.triangles[bvh_.original_index[i]].v2,
-                    model_.triangles[bvh_.original_index[i]].v3));
-            bvh_.leaf_nodes[index].min_bound = fminf(
-                fminf(bvh_.leaf_nodes[index].min_bound,
-                    model_.triangles[bvh_.original_index[i]].v1),
-                fminf(model_.triangles[bvh_.original_index[i]].v2,
-                    model_.triangles[bvh_.original_index[i]].v3));
-        }
-
+        bvh_.leaf_nodes[index].max_bound = fmaxf(
+            model_.triangles[bvh_.original_index[index]].v1,
+            fmaxf(model_.triangles[bvh_.original_index[index]].v2,
+                model_.triangles[bvh_.original_index[index]].v3));
+        bvh_.leaf_nodes[index].min_bound = fminf(
+            model_.triangles[bvh_.original_index[index]].v1,
+            fminf(model_.triangles[bvh_.original_index[index]].v2,
+                model_.triangles[bvh_.original_index[index]].v3));
         int current = bvh_.leaf_nodes[index].father_index;
         //内部节点
 
@@ -320,50 +295,16 @@ Bvh BuildDeviceBvh(const Model& device_model)
     cudaEventElapsedTime(&time,start,stop);
     printf("Done %f ms.\n", time);	
 
-    printf("Contracting Morton Codes...");
-    cudaEventRecord(start, 0);
-    thrust::device_ptr<int> devptr_is_single
-        = thrust::device_malloc<int>(device_model.triangle_number);
-    thrust::transform(devptr_morton_codes,
-        devptr_morton_codes + device_model.triangle_number - 1,
-        devptr_morton_codes + 1,
-        devptr_is_single,
-        MortonIsSingleFunction());
-    devptr_is_single[device_model.triangle_number - 1] = 1;
-    thrust::device_ptr<int> devptr_is_single_scan
-        = thrust::device_malloc<int>(device_model.triangle_number);
-    thrust::exclusive_scan(devptr_is_single,
-        devptr_is_single + device_model.triangle_number,
-        devptr_is_single_scan);
-    thrust::device_ptr<int> devptr_lastid
-        = thrust::device_malloc<int>(device_model.triangle_number);
-    thrust::scatter_if(count,
-        count + device_model.triangle_number,
-        devptr_is_single_scan,
-        devptr_is_single,
-        devptr_lastid);
-    cudaEventRecord(stop, 0);
-    cudaEventSynchronize(stop);
-    cudaEventElapsedTime(&time, start, stop);
-    printf("Done %f ms.\n", time);
-
     printf("Creating Nodes...");
     cudaEventRecord(start, 0);
-    int leaf_number = devptr_is_single_scan[device_model.triangle_number - 1] + 1;
+    int leaf_number = device_model.triangle_number;
     thrust::device_ptr<Bvh::LeafNode> devptr_leaf_nodes
         = thrust::device_malloc<Bvh::LeafNode>(leaf_number);
-    thrust::transform(count,
-        count + leaf_number,
-        devptr_leaf_nodes,
-        CreateLeavesFunction(device_model.triangle_number,
-        leaf_number,
-        devptr_lastid.get()));
     thrust::device_ptr<Bvh::InnerNode> devptr_inner_nodes
         = thrust::device_malloc<Bvh::InnerNode>(leaf_number - 1);
     block_num = leaf_number / BLOCK_DIM + 1;
     CreateInnerNodes<<<block_num, BLOCK_DIM>>>(leaf_number,
         devptr_morton_codes.get(),
-        devptr_lastid.get(),
         devptr_inner_nodes.get(),
         devptr_leaf_nodes.get());
     device_bvh.inner_nodes = devptr_inner_nodes.get();
@@ -379,9 +320,6 @@ Bvh BuildDeviceBvh(const Model& device_model)
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&time,start,stop);
     printf("Done %f ms.\n", time);
-    std::cout << device_bvh.leaf_number << std::endl;
     thrust::device_free(devptr_morton_codes);
-    thrust::device_free(devptr_is_single);
-    thrust::device_free(devptr_is_single_scan);
     return device_bvh;
 }

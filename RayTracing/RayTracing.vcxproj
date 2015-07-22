@@ -24,6 +24,7 @@
     <ClInclude Include="model.h" />
     <ClInclude Include="screen.h" />
     <ClInclude Include="stack.h" />
+    <ClInclude Include="test.h" />
     <ClInclude Include="traversal.h" />
     <ClInclude Include="vector_types_math.h" />
   </ItemGroup>
@@ -31,6 +32,7 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="model.cpp" />
     <ClCompile Include="screen.cpp" />
+    <ClCompile Include="test.cpp" />
   </ItemGroup>
   <ItemGroup>
     <CudaCompile Include="bvh.cu" />
