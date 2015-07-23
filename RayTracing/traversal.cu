@@ -13,6 +13,12 @@
 #define BlockDimX      256  
 #define StackSize      64
 
+struct NodeStack
+{
+    int nodeIdx;
+    bool isleaf;
+};
+
 template<typename T>
 __device__ __inline__ void swap(T* a, T* b)
 {
@@ -60,81 +66,73 @@ __device__ __inline__ float min3f(float3 a)
 __device__ thrust::pair<int, float> traversal(const Bvh& bvh, const Model& model, const float3& dir, const float3& orig)
 {
     float3 idir;
-    typedef thrust::pair<int, bool> Node;
     idir.x = 1.0f / (fabsf(dir.x) > EPSILON ? dir.x : ((dir.x>=0) ? EPSILON : -EPSILON));
     idir.y = 1.0f / (fabsf(dir.y) > EPSILON ? dir.y : ((dir.y>=0) ? EPSILON : -EPSILON));
     idir.z = 1.0f / (fabsf(dir.z) > EPSILON ? dir.z : ((dir.z>=0) ? EPSILON : -EPSILON));
 
     int stackPtr = -1;   
-    Node current = thrust::make_pair(0, false);
-    Node bvhStack[StackSize];	// Thrown into local memory by PTX, as slow as the global memory;
+    int currentNode = 0;
+    bool currentIsLeaf = false;
+    NodeStack bvhStack[StackSize];	// Thrown into local memory by PTX, as slow as the global memory;
 
     int hit = -1;	
     float t = 1000.0;
 
-    int leafstack[512];	
-    int num = 0;
 
     while (stackPtr < StackSize)
     {
-        if (current.second)
-        {	
-            leafstack[num] = current.first;
-            num++;
-
+        if (currentIsLeaf)
+        {
+            float pt = intersect(orig, dir, model, bvh.original_index[currentNode]);
+            if (pt > 0 && pt < t)
+            {
+                t = pt;
+                hit = bvh.original_index[currentNode];
+            }
             // pop
             if ( stackPtr == -1 ) 
                 break;
-            current = bvhStack[stackPtr];
+            currentNode = bvhStack[stackPtr].nodeIdx;
+            currentIsLeaf = bvhStack[stackPtr].isleaf;
             --stackPtr;		
         }
         else
         {
-            int left_node = bvh.inner_nodes[current.first].left_index;
-            int right_node = bvh.inner_nodes[current.first].right_index;
-            bool left_is_leaf = bvh.inner_nodes[current.first].left_is_leaf;
-            bool right_is_leaf = bvh.inner_nodes[current.first].right_is_leaf;
+            int left_node = bvh.inner_nodes[currentNode].left_index;
+            int right_node = bvh.inner_nodes[currentNode].right_index;
+            bool left_is_leaf = bvh.inner_nodes[currentNode].left_is_leaf;
+            bool right_is_leaf = bvh.inner_nodes[currentNode].right_is_leaf;
             float3 c0low, c0high, c1low, c1high;
-            if (bvh.inner_nodes[current.first].left_is_leaf)
-            {
-                c0low = bvh.leaf_nodes[left_node].min_bound;
-                c0high = bvh.leaf_nodes[left_node].max_bound;
-            }
-            else
-            {
-                c0low = bvh.inner_nodes[left_node].min_bound;
-                c0high = bvh.inner_nodes[left_node].max_bound;
-            }
-            if (bvh.inner_nodes[current.first].right_is_leaf)
-            {
-                c1low = bvh.leaf_nodes[right_node].min_bound;
-                c1high = bvh.leaf_nodes[right_node].max_bound;
-            }
-            else
-            {
-                c1low = bvh.inner_nodes[right_node].min_bound;
-                c1high = bvh.inner_nodes[right_node].max_bound;
-            }
-            // Using texture memory and AOS here can accelerate the program by 2x;
+            //        printf("%d %d\n", inner_nodes_[current_node].left_is_leaf, inner_nodes_[current_node].right_is_leaf);
+            c0low = left_is_leaf ? bvh.leaf_nodes[left_node].min_bound
+                : bvh.inner_nodes[left_node].min_bound;
+            c0high = left_is_leaf ? bvh.leaf_nodes[left_node].max_bound
+                : bvh.inner_nodes[left_node].max_bound;
+            c1low = right_is_leaf ? bvh.leaf_nodes[right_node].min_bound
+                : bvh.inner_nodes[right_node].min_bound;
+            c1high = right_is_leaf ? bvh.leaf_nodes[right_node].max_bound
+                : bvh.inner_nodes[right_node].max_bound;
+            c0low = (c0low - orig) * idir;
+            c0high = (c0high - orig) * idir;
+            c1low = (c1low - orig) * idir;
+            c1high = (c1high - orig) * idir;
             float c0min = max3f(fminf(c0low, c0high));
             float c0max = min3f(fmaxf(c0low, c0high));
             float c1min = max3f(fminf(c1low, c1high));
             float c1max = min3f(fmaxf(c1low, c1high));
-
-            bool traverseChild0 = (c0max >= c0min) && (c0min <= t);   
-            bool traverseChild1 = (c1max >= c1min) && (c1min <= t); 
+            bool traverseChild0 = (c0max >= c0min) && (t >= c0min);   
+            bool traverseChild1 = (c1max >= c1min) && (t >= c1min); 
+            currentNode = left_node;
+            currentIsLeaf = left_is_leaf;
 
             // Condition 1: intersect with only one child.
 
             if( traverseChild0 != traverseChild1 )		
             {
-                if (traverseChild0)
+                if (traverseChild1)
                 {
-                    current = thrust::make_pair(left_node, left_is_leaf);
-                }
-                else
-                {
-                    current = thrust::make_pair(right_node, right_is_leaf);
+                    currentNode = right_node;
+                    currentIsLeaf = right_is_leaf;
                 }
             }
             else
@@ -144,16 +142,14 @@ __device__ thrust::pair<int, float> traversal(const Bvh& bvh, const Model& model
                 {
                     if( c1min < c0min )   // go right    
                     {	
-                        current = thrust::make_pair(right_node, right_is_leaf);
-                        ++stackPtr;
-                        bvhStack[stackPtr] = thrust::make_pair(left_node, left_is_leaf);
+                        swap(&left_node, &right_node);
+                        swap(&left_is_leaf, &right_is_leaf);				
                     }
-                    else
-                    {
-                        current = thrust::make_pair(left_node, left_is_leaf);
-                        ++stackPtr;
-                        bvhStack[stackPtr] = thrust::make_pair(right_node, right_is_leaf);
-                    }
+                    ++stackPtr;
+                    currentNode = left_node;
+                    currentIsLeaf = left_is_leaf;
+                    bvhStack[stackPtr].nodeIdx = right_node;
+                    bvhStack[stackPtr].isleaf = right_is_leaf;
                 }
                 // Condition 3: none intersected;s
                 else
@@ -161,21 +157,11 @@ __device__ thrust::pair<int, float> traversal(const Bvh& bvh, const Model& model
                     // pop;
                     if ( stackPtr == -1 ) // This ray is not intersected with the whole scene.
                         break;
-                    current = bvhStack[stackPtr];
+                    currentNode = bvhStack[stackPtr].nodeIdx;
+                    currentIsLeaf = bvhStack[stackPtr].isleaf;
                     --stackPtr;
                 }
             }			
-        }
-    }
-
-    for (int l = 0; l < num; l++)
-    {
-        int k = leafstack[l];
-        float pt = intersect(orig, dir, model, k);
-        if (pt > 0 && pt < t)
-        {
-            t = pt;
-            hit = k;
         }
     }
     return thrust::make_pair(hit, t);

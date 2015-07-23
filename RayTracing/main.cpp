@@ -128,21 +128,22 @@ int main(int argc, char** argv)
         vhit[i] = false;
         vcolor[i] = 0;
     }
-    //CreateRays(params);
-    GetColorAllPixels(params, device_model, bvh, vhit, vcolor);
-    glutInit(&argc, argv);
-    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB|GLUT_DEPTH );
-    glutInitWindowSize(WinSizeW, WinSizeH);
-    glutInitWindowPosition(0,0);
-    glutCreateWindow("Galina Dragon");
-    initFunc();
-    glutDisplayFunc(myDisplay);
+    Ray* list = CreateRays(params);
+    test_contract_rays(list, ScrWidth * ScrHeight, params);
+    //GetColorAllPixels(params, device_model, bvh, vhit, vcolor);
+    //glutInit(&argc, argv);
+    //glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB|GLUT_DEPTH );
+    //glutInitWindowSize(WinSizeW, WinSizeH);
+    //glutInitWindowPosition(0,0);
+    //glutCreateWindow("Galina Dragon");
+    //initFunc();
+    //glutDisplayFunc(myDisplay);
 
-    // 	glutSpecialFunc(keyboard);
-    // 	glutIdleFunc(myDisplay);
+    //// 	glutSpecialFunc(keyboard);
+    //// 	glutIdleFunc(myDisplay);
 
-    glutReshapeFunc(ReSizeGLScene);
-    glutMainLoop();  
+    //glutReshapeFunc(ReSizeGLScene);
+    //glutMainLoop();  
 
     return 0;
 }
