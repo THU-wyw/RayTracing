@@ -27,6 +27,15 @@ __device__ __inline__ void swap(T* a, T* b)
     *b = t;
 }
 
+__device__ __inline__ float max3f(float3 a)
+{
+    return fmaxf(fmaxf(a.x, a.y), a.z);
+}
+__device__ __inline__ float min3f(float3 a)
+{
+    return fminf(fminf(a.x, a.y), a.z);
+}
+
 __device__ __inline__ float intersect(const float3& orig, const float3& dir, const Model& model, int triangle_id)
 {
     float3 edge1 = model.triangles[triangle_id].v2
@@ -52,15 +61,6 @@ __device__ __inline__ float intersect(const float3& orig, const float3& dir, con
         return -1;
 
     return (dot(edge2, qvec) * inv_det );
-}
-
-__device__ __inline__ float max3f(float3 a)
-{
-    return fmaxf(fmaxf(a.x, a.y), a.z);
-}
-__device__ __inline__ float min3f(float3 a)
-{
-    return fminf(fminf(a.x, a.y), a.z);
 }
 
 __device__ thrust::pair<int, float> traversal(const Bvh& bvh, const Model& model, const float3& dir, const float3& orig)
@@ -170,7 +170,6 @@ __device__ thrust::pair<int, float> traversal(const Bvh& bvh, const Model& model
 __global__ void GetColorOnePixel(const ScreenParams params,
                                  const Model model,
                                  const Bvh bvh,
-                                 bool *vhit,
                                  float *vcolor){
     int idx = blockIdx.x * blockDim.x + threadIdx.x;  
 
@@ -193,8 +192,7 @@ __global__ void GetColorOnePixel(const ScreenParams params,
         thrust::tie(k, t) = traversal(bvh, model, dir, rayorig); 
 
         if (k >= 0) // get an intersected triangle 
-        {
-            vhit[idx] = true;	
+        {	
             vcolor[idx] = KAmbient;	
 
             float3 V = t * dir;
@@ -237,7 +235,7 @@ __global__ void GetColorOnePixel(const ScreenParams params,
         }
         else
         {
-            vhit[idx] = false;
+            vcolor[idx] = -1.0f;
         }
     }
 }
@@ -257,8 +255,6 @@ cudaError_t GetColorAllPixels(const ScreenParams& params,
 
     float* dev_color = NULL;
     cudaMalloc((void**)&dev_color, sizeof(float) * ScrHeight * ScrWidth);
-    bool* dev_hit = NULL;
-    cudaMalloc((void**)&dev_hit, sizeof(bool) * ScrHeight * ScrWidth);
     cudaStatus = cudaDeviceSynchronize();
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc failed!\n");
@@ -268,12 +264,11 @@ cudaError_t GetColorAllPixels(const ScreenParams& params,
     dim3 threads(BlockDimX, BlockSize / BlockDimX, 1);  
     printf("cuda traversal...");
     cudaEventRecord(start, 0);
-    GetColorOnePixel<<<blocks, threads>>>(params, model, bvh, dev_hit, dev_color);
+    GetColorOnePixel<<<blocks, threads>>>(params, model, bvh, dev_color);
     cudaEventRecord(stop, 0);
     cudaEventSynchronize(stop);
     cudaEventElapsedTime(&time, start, stop);
     printf("Done. %f ms\n", time);
-    cudaMemcpy(vhit, dev_hit, sizeof(bool) * ScrHeight * ScrWidth, cudaMemcpyDeviceToHost);
     cudaMemcpy(vcolor, dev_color, sizeof(float) * ScrHeight * ScrWidth, cudaMemcpyDeviceToHost);
     std::cout << "Tracing speed: " << ScrHeight*ScrWidth/(time*1000) << " MRays/s" << std::endl;
 
@@ -284,7 +279,6 @@ cudaError_t GetColorAllPixels(const ScreenParams& params,
     }
     std::cout << ccnt << "Effective Tracing speed: " << ccnt / (time * 1000) << " MRays/s"<< std::endl;
     cudaFree(dev_color); 
-    cudaFree(dev_hit); 	
 
     return cudaStatus;
 }
